@@ -2,15 +2,19 @@ import { logger } from "./logger";
 
 /**
  * Optional Modal MusicGen worker. When MODAL_BACKING_URL is configured, the
- * pipeline conditions a backing track on the user's actual hum melody (A10G GPU).
- * If the URL is unset or the request fails, the caller falls back to ElevenLabs.
+ * pipeline conditions a backing track on a CLEAN synthesized melody (the lead
+ * rendered from the transcribed notes) rather than the raw hum. The raw hum is
+ * breathy and full of octave/pitch noise, which produced an incoherent backing;
+ * conditioning on the clean lead gives the model an unambiguous melody contour
+ * to follow. If the URL is unset or the request fails, the caller falls back to
+ * ElevenLabs.
  */
 export function modalConfigured(): boolean {
   return Boolean(process.env.MODAL_BACKING_URL);
 }
 
-export async function generateBackingFromHum(opts: {
-  hum: Buffer;
+export async function generateBackingFromMelody(opts: {
+  melody: Buffer;
   vibe: string;
   durationSeconds: number;
 }): Promise<Buffer> {
@@ -18,7 +22,13 @@ export async function generateBackingFromHum(opts: {
   if (!url) throw new Error("MODAL_BACKING_URL is not set");
 
   const form = new FormData();
-  form.append("file", new Blob([new Uint8Array(opts.hum)], { type: "audio/wav" }), "hum.wav");
+  // The worker conditions MusicGen-melody on the chroma of this uploaded WAV.
+  // We send the clean synthesized lead so the backing follows the real tune.
+  form.append(
+    "file",
+    new Blob([new Uint8Array(opts.melody)], { type: "audio/wav" }),
+    "melody.wav",
+  );
   form.append("vibe", opts.vibe);
   form.append("duration", String(Math.round(opts.durationSeconds)));
 

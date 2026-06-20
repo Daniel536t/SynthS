@@ -14,10 +14,21 @@ MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.3
 MAJOR_SCALE = {0, 2, 4, 5, 7, 9, 11}
 MINOR_SCALE = {0, 2, 3, 5, 7, 8, 10}
 
-# pyin search range — comfortable human humming register (C2..C6).
-FMIN = 65.0
-FMAX = 1050.0
-MIN_NOTE_SECONDS = 0.09  # drop blips shorter than this
+# pyin search range. We deliberately search a WIDE band so pyin can lock onto
+# the fundamental, then fold octave-jump errors back toward the melody's median
+# register afterwards (see extract_notes). A naive narrow range loses real notes;
+# a naive wide range produces the multi-octave "staircase" garbage we used to
+# ship. The post-processing below is what makes the result clean.
+FMIN = 70.0
+FMAX = 1000.0
+MIN_NOTE_SECONDS = 0.10  # drop blips shorter than this
+# A hummed note must be both pitch-confident AND have real energy. Breath noise
+# between notes is low-energy, so an RMS gate removes it before segmentation.
+VOICED_PROB_MIN = 0.25
+# Fold any frame more than this many semitones from the running melody median
+# back by whole octaves. Keeps the melody inside a single octave band so the
+# synthesized lead plays one coherent line instead of jumping octaves.
+OCTAVE_FOLD_SEMITONES = 6
 
 
 def correlate(chroma, profile, shift):
@@ -60,23 +71,89 @@ def snap_to_key(midi, root_pc, mode):
 def extract_notes(y, sr, root_pc, mode, tempo):
     import librosa
     import numpy as np
+    from scipy.signal import medfilt
 
-    f0, voiced_flag, _ = librosa.pyin(
-        y, fmin=FMIN, fmax=FMAX, sr=sr, frame_length=2048
+    frame_length = 2048
+    hop_length = 512
+
+    # pyin returns (f0, voiced_flag, voiced_prob). We use voiced_prob (a soft
+    # confidence) plus a per-frame energy gate rather than the hard voiced_flag,
+    # which over-keeps breathy frames.
+    f0, _voiced_flag, voiced_prob = librosa.pyin(
+        y,
+        fmin=FMIN,
+        fmax=FMAX,
+        sr=sr,
+        frame_length=frame_length,
+        hop_length=hop_length,
+        fill_na=np.nan,
     )
-    times = librosa.times_like(f0, sr=sr)
+    times = librosa.times_like(f0, sr=sr, hop_length=hop_length)
+    hop = float(times[1] - times[0]) if len(times) > 1 else hop_length / sr
 
-    # Frame -> quantized MIDI (or None when unvoiced/uncertain).
+    rms = librosa.feature.rms(
+        y=y, frame_length=frame_length, hop_length=hop_length
+    )[0]
+    rms = rms[: len(f0)]
+    if len(rms) < len(f0):  # pad if rms came back short
+        rms = np.pad(rms, (0, len(f0) - len(rms)), mode="edge")
+
+    midi = librosa.hz_to_midi(f0)
+
+    # A frame counts as a real hummed note only if pyin is confident AND there
+    # is enough energy (drops inter-note breath/silence). The energy floor is
+    # relative to the take's own loudness so quiet recordings still work.
+    energy_floor = max(0.02, float(rms.mean()) * 0.6)
+    voiced = (~np.isnan(midi)) & (voiced_prob > VOICED_PROB_MIN) & (rms > energy_floor)
+    if not voiced.any():
+        return []
+
+    # --- Octave-error correction -------------------------------------------
+    # pyin occasionally reports a note an octave (or two) off. Fold every voiced
+    # frame to within OCTAVE_FOLD_SEMITONES of the melody's median register so
+    # the line stays in one octave instead of leaping around.
+    ref = float(np.median(midi[voiced]))
+    corr = midi.copy()
+    idx = np.where(voiced)[0]
+    for i in idx:
+        m = corr[i]
+        while m - ref > OCTAVE_FOLD_SEMITONES:
+            m -= 12
+        while ref - m > OCTAVE_FOLD_SEMITONES:
+            m += 12
+        corr[i] = m
+
+    # --- Smooth within each contiguous voiced run --------------------------
+    # Median-filter the pitch contour inside each sung phrase to remove
+    # single-frame jitter before we quantize to discrete notes.
+    smooth = corr.copy()
+    i = 0
+    n_frames = len(corr)
+    while i < n_frames:
+        if not voiced[i]:
+            i += 1
+            continue
+        j = i
+        while j < n_frames and voiced[j]:
+            j += 1
+        run = corr[i:j]
+        if len(run) >= 3:
+            k = min(5, len(run))
+            if k % 2 == 0:
+                k -= 1
+            if k >= 3:
+                smooth[i:j] = medfilt(run, kernel_size=k)
+        i = j
+
+    # Frame -> quantized, key-snapped MIDI (or None when unvoiced).
     frame_midi = []
-    for i, f in enumerate(f0):
-        if voiced_flag[i] and f is not None and not np.isnan(f) and f > 0:
-            m = int(round(float(librosa.hz_to_midi(f))))
+    for i in range(n_frames):
+        if voiced[i] and not np.isnan(smooth[i]):
+            m = int(round(float(smooth[i])))
             m = snap_to_key(m, root_pc, mode)
             frame_midi.append(m)
         else:
             frame_midi.append(None)
-
-    hop = times[1] - times[0] if len(times) > 1 else 0.0
 
     # Group consecutive equal-pitch frames into notes.
     raw = []

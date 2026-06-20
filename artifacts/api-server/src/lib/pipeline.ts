@@ -12,7 +12,7 @@ import {
 import { transcribeHum } from "./transcribe";
 import { renderMelodyLead } from "./melody";
 import { generateBacking, generateVocals } from "./elevenlabs";
-import { modalConfigured, generateBackingFromHum } from "./musicgen";
+import { modalConfigured, generateBackingFromMelody } from "./musicgen";
 
 type Stage =
   | "draft"
@@ -48,14 +48,6 @@ const DEFAULT_DURATION = 24; // seconds for generated stems
 // (or "true") to re-enable it.
 function vocalsEnabled(): boolean {
   const v = (process.env.SYNTHSCRIBE_ENABLE_VOCALS ?? "").trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
-}
-
-// The AI backing already follows the hummed melody, so the raw hum is NOT
-// layered into the final mix by default — overlaying it produced an unsynced,
-// clashing intro. Set SYNTHSCRIBE_HUM_BLEED=1 to re-enable a faint hum trace.
-function humBleedEnabled(): boolean {
-  const v = (process.env.SYNTHSCRIBE_HUM_BLEED ?? "").trim().toLowerCase();
   return v === "1" || v === "true" || v === "yes";
 }
 
@@ -100,18 +92,40 @@ export async function runPipeline(projectId: string): Promise<void> {
       message: `Detected ${key} at ${Math.round(tempo)} BPM`,
     });
 
-    // 2. Backing track ----------------------------------------------------
+    // 2. Faithful melody lead --------------------------------------------
+    // Synthesize the transcribed notes into a CLEAN lead-instrument WAV. This
+    // is the user's actual tune, octave-corrected and de-noised. It serves two
+    // purposes: (a) it conditions the GPU backing below so the bed follows the
+    // real melody, and (b) it is the prominent melodic line in the final mix.
+    // The raw hum is intentionally NEVER used as audio in either place.
+    let lead: Buffer | null = null;
+    if (transcription.notes.length > 0) {
+      lead = await renderMelodyLead({
+        notes: transcription.notes,
+        targetDurationSeconds: targetDuration,
+      });
+      if (lead) {
+        await uploadBuffer(`synthscribe/${projectId}/lead.wav`, lead, "audio/wav");
+        log.info({ noteCount: transcription.notes.length }, "Rendered melody lead");
+      } else {
+        log.warn("Lead render returned empty despite transcribed notes");
+      }
+    } else {
+      log.warn("No transcribed notes; backing will be vibe-only (no melody lead)");
+    }
+
+    // 3. Backing track ----------------------------------------------------
     // The user picks the backing engine per generation: "gpu" runs the Modal
-    // MusicGen-melody worker (with a graceful ElevenLabs fallback), while
-    // "elevenlabs" always uses ElevenLabs Music even when Modal is configured.
-    // The transcribed melody lead is layered on top in both modes (see 2b), so
-    // only the backing bed differs between engines.
-    const useGpu = project.engine === "gpu" && modalConfigured();
+    // MusicGen-melody worker conditioned on the CLEAN lead (with a graceful
+    // ElevenLabs fallback), while "elevenlabs" always uses ElevenLabs Music.
+    // MusicGen-melody needs a melody to condition on, so the GPU path is only
+    // used when we actually rendered a lead; otherwise we use ElevenLabs.
+    const useGpu = project.engine === "gpu" && modalConfigured() && lead !== null;
     await patch(projectId, {
       stage: "generating_backing",
-      progress: 45,
+      progress: 50,
       message: useGpu
-        ? "Composing music around your hum"
+        ? "Composing music around your melody"
         : "Producing your backing track",
     });
     const elevenlabsBacking = async (): Promise<Buffer> => {
@@ -124,10 +138,10 @@ export async function runPipeline(projectId: string): Promise<void> {
       return toWav(raw);
     };
     let backing: Buffer;
-    if (useGpu) {
+    if (useGpu && lead) {
       try {
-        const raw = await generateBackingFromHum({
-          hum,
+        const raw = await generateBackingFromMelody({
+          melody: lead,
           vibe: project.vibe,
           durationSeconds: targetDuration,
         });
@@ -145,22 +159,6 @@ export async function runPipeline(projectId: string): Promise<void> {
       "audio/wav",
     );
     await patch(projectId, { backingPath, progress: 65 });
-
-    // 2b. Faithful melody lead -------------------------------------------
-    // Synthesize the actual notes the user hummed into a clean lead that sits
-    // on top of the AI backing bed. This is what guarantees the finished song
-    // contains the user's real tune (the bed alone only follows the vibe).
-    let lead: Buffer | null = null;
-    if (transcription.notes.length > 0) {
-      lead = await renderMelodyLead({
-        notes: transcription.notes,
-        targetDurationSeconds: targetDuration,
-      });
-      if (lead) {
-        await uploadBuffer(`synthscribe/${projectId}/lead.wav`, lead, "audio/wav");
-        log.info({ noteCount: transcription.notes.length }, "Rendered melody lead");
-      }
-    }
 
     // 3. Vocals (optional, off by default) -------------------------------
     let vocals: Buffer | null = null;
@@ -199,23 +197,17 @@ export async function runPipeline(projectId: string): Promise<void> {
       progress: 90,
       message: "Mixing and mastering",
     });
-    // The AI backing is the supporting bed; the transcribed melody lead sits on
-    // top so the user clearly hears their own tune.
+    // The clean melody lead is the star: it plays loud and on top so the user
+    // clearly hears THEIR tune, with the AI backing as a supporting bed beneath.
+    // The raw hum is never mixed in — when there is no usable melody we ship the
+    // vibe-only backing rather than a noisy hum.
     const inputs: MixInput[] = [];
     if (lead) {
-      inputs.push({ buffer: backing, gain: 0.5 });
-      inputs.push({ buffer: lead, gain: 0.95, fadeInSeconds: 0.15 });
-      // Optional faint raw-hum trace on top of the clean lead (debug only).
-      if (humBleedEnabled()) {
-        inputs.push({ buffer: hum, gain: 0.1, reverb: true, fadeInSeconds: 1.2 });
-      }
+      inputs.push({ buffer: backing, gain: 0.4 });
+      inputs.push({ buffer: lead, gain: 1.0, fadeInSeconds: 0.15 });
     } else {
-      // No usable notes / render failed: never ship a melody-less song. Blend
-      // the user's own cleaned hum in as the fallback lead so their tune is
-      // still present, just less polished than the synthesized lead.
-      log.warn("No rendered lead; falling back to raw hum as melody layer");
-      inputs.push({ buffer: backing, gain: 0.7 });
-      inputs.push({ buffer: hum, gain: 0.5, reverb: true, fadeInSeconds: 0.8 });
+      log.warn("No melody lead; shipping vibe-only backing (no raw hum)");
+      inputs.push({ buffer: backing, gain: 1.0 });
     }
     if (vocals) inputs.push({ buffer: vocals, gain: 0.6 });
     const master = await mixAndMaster(inputs);
