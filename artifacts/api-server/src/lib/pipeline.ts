@@ -10,10 +10,8 @@ import {
   type MixInput,
 } from "./audio";
 import { transcribeHum } from "./transcribe";
-import { renderMelodyLead } from "./melody";
 import { generateBacking, generateVocals } from "./elevenlabs";
-import { modalConfigured, generateBackingFromMelody } from "./musicgen";
-import { arrangeBacking } from "./arranger";
+import { modalConfigured, generateBackingFromHum } from "./musicgen";
 
 type Stage =
   | "draft"
@@ -52,6 +50,13 @@ function vocalsEnabled(): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+// Resolve the stored engine value to a concrete backing path. New rows store
+// "musicgen" or "elevenlabs"; old rows may still hold the legacy "gpu"
+// (treated as musicgen) or "arranger" (the retired studio band -> elevenlabs).
+function useGpuEngine(engine: string): boolean {
+  return engine === "musicgen" || engine === "gpu";
+}
+
 export async function runPipeline(projectId: string): Promise<void> {
   const log = logger.child({ projectId });
   try {
@@ -63,6 +68,9 @@ export async function runPipeline(projectId: string): Promise<void> {
     if (!project.humPath) throw new Error("No hum uploaded");
 
     // 1. Transcribe -------------------------------------------------------
+    // We normalize the raw recording and detect its key/tempo. The cleaned hum
+    // itself is what we layer into the final mix (see step 4) — its melody calls
+    // out at the start and then gives way to the AI band.
     await patch(projectId, {
       stage: "transcribing",
       progress: 15,
@@ -93,47 +101,20 @@ export async function runPipeline(projectId: string): Promise<void> {
       message: `Detected ${key} at ${Math.round(tempo)} BPM`,
     });
 
-    // 2. Faithful melody lead --------------------------------------------
-    // Synthesize the transcribed notes into a CLEAN lead-instrument WAV. This
-    // is the user's actual tune, octave-corrected and de-noised. It serves two
-    // purposes: (a) it conditions the GPU backing below so the bed follows the
-    // real melody, and (b) it is the prominent melodic line in the final mix.
-    // The raw hum is intentionally NEVER used as audio in either place.
-    let lead: Buffer | null = null;
-    if (transcription.notes.length > 0) {
-      lead = await renderMelodyLead({
-        notes: transcription.notes,
-        targetDurationSeconds: targetDuration,
-      });
-      if (lead) {
-        await uploadBuffer(`synthscribe/${projectId}/lead.wav`, lead, "audio/wav");
-        log.info({ noteCount: transcription.notes.length }, "Rendered melody lead");
-      } else {
-        log.warn("Lead render returned empty despite transcribed notes");
-      }
-    } else {
-      log.warn("No transcribed notes; backing will be vibe-only (no melody lead)");
-    }
-
-    // 3. Backing track ----------------------------------------------------
+    // 2. Backing track ----------------------------------------------------
     // The user picks the backing engine per generation:
-    //   - "arranger" (default): a deterministic, GPU-free studio band (drums +
-    //     bass + chords) rendered on CPU, locked to the detected key/tempo and
-    //     styled by the vibe. Always available, no credits, no GPU.
-    //   - "elevenlabs": the premium ElevenLabs Music model.
-    // The legacy "gpu" (Modal MusicGen-melody) path is kept dormant for old rows
-    // only: it runs solely when explicitly selected AND configured AND we have a
-    // lead to condition on; it is no longer offered in the UI.
-    const useGpu = project.engine === "gpu" && modalConfigured() && lead !== null;
-    const useArranger = project.engine !== "elevenlabs" && !useGpu;
+    //   - "musicgen" (default): the Modal MusicGen-melody GPU worker, which
+    //     conditions on the hum's chroma so the band follows the real tune.
+    //   - "elevenlabs": the premium ElevenLabs Music model (prompted with the
+    //     detected vibe/key/tempo).
+    // MusicGen falls back to ElevenLabs if the GPU worker is unavailable.
+    const useGpu = useGpuEngine(project.engine) && modalConfigured();
     await patch(projectId, {
       stage: "generating_backing",
       progress: 50,
-      message: useArranger
-        ? "Building your studio band"
-        : useGpu
-          ? "Composing music around your melody"
-          : "Producing your backing track",
+      message: useGpu
+        ? "Composing music around your hum"
+        : "Producing your backing track",
     });
     const elevenlabsBacking = async (): Promise<Buffer> => {
       const raw = await generateBacking({
@@ -145,28 +126,16 @@ export async function runPipeline(projectId: string): Promise<void> {
       return toWav(raw);
     };
     let backing: Buffer;
-    if (useGpu && lead) {
+    if (useGpu) {
       try {
-        const raw = await generateBackingFromMelody({
-          melody: lead,
+        const raw = await generateBackingFromHum({
+          hum,
           vibe: project.vibe,
           durationSeconds: targetDuration,
         });
         backing = await toWav(raw);
       } catch (err) {
         log.warn({ err }, "Modal backing failed, falling back to ElevenLabs");
-        backing = await elevenlabsBacking();
-      }
-    } else if (useArranger) {
-      try {
-        backing = await arrangeBacking({
-          vibe: project.vibe,
-          key,
-          tempo,
-          durationSeconds: targetDuration,
-        });
-      } catch (err) {
-        log.warn({ err }, "Arranger failed, falling back to ElevenLabs");
         backing = await elevenlabsBacking();
       }
     } else {
@@ -211,23 +180,19 @@ export async function runPipeline(projectId: string): Promise<void> {
     }
 
     // 4. Mix & master -----------------------------------------------------
+    // Layer the user's own hum (with a touch of reverb) over the AI backing.
+    // Because the hum is short and the song is ~3x longer, the hum "calls out"
+    // at the start and then melts into the generated band — the original, loved
+    // SynthScribe sound. The AI bed sits just under it and carries the rest.
     await patch(projectId, {
       stage: "mixing",
       progress: 90,
       message: "Mixing and mastering",
     });
-    // The clean melody lead is the star: it plays loud and on top so the user
-    // clearly hears THEIR tune, with the AI backing as a supporting bed beneath.
-    // The raw hum is never mixed in — when there is no usable melody we ship the
-    // vibe-only backing rather than a noisy hum.
-    const inputs: MixInput[] = [];
-    if (lead) {
-      inputs.push({ buffer: backing, gain: 0.4 });
-      inputs.push({ buffer: lead, gain: 1.0, fadeInSeconds: 0.15 });
-    } else {
-      log.warn("No melody lead; shipping vibe-only backing (no raw hum)");
-      inputs.push({ buffer: backing, gain: 1.0 });
-    }
+    const inputs: MixInput[] = [
+      { buffer: backing, gain: 0.9 },
+      { buffer: hum, gain: 0.85, reverb: true, fadeInSeconds: 0.1 },
+    ];
     if (vocals) inputs.push({ buffer: vocals, gain: 0.6 });
     const master = await mixAndMaster(inputs);
     const finalPath = await uploadBuffer(

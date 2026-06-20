@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Vibe, Engine } from "@workspace/api-client-react";
+import { Vibe, EngineChoice } from "@workspace/api-client-react";
 import { useCreateProject, useUploadHum, useStartGeneration, useListProjects } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ import { Link } from "wouter";
 const formSchema = z.object({
   title: z.string().optional(),
   vibe: z.nativeEnum(Vibe),
-  engine: z.nativeEnum(Engine),
+  engine: z.nativeEnum(EngineChoice),
 });
 
 export default function Home() {
@@ -34,7 +34,7 @@ export default function Home() {
     defaultValues: {
       title: "",
       vibe: "pop",
-      engine: "arranger",
+      engine: "musicgen",
     },
   });
 
@@ -85,8 +85,8 @@ export default function Home() {
     { value: "synthwave", label: "Synthwave", icon: <Radio className="w-5 h-5" />, color: "bg-fuchsia-500" },
   ];
 
-  const engines: { value: Engine; label: string; icon: React.ReactNode; description: string }[] = [
-    { value: "arranger", label: "Studio Band", icon: <Cpu className="w-5 h-5" />, description: "Instant drums, bass & chords in your key" },
+  const engines: { value: EngineChoice; label: string; icon: React.ReactNode; description: string }[] = [
+    { value: "musicgen", label: "MusicGen", icon: <Cpu className="w-5 h-5" />, description: "GPU band that follows your hummed tune" },
     { value: "elevenlabs", label: "ElevenLabs", icon: <AudioLines className="w-5 h-5" />, description: "Premium AI band (richer, uses credits)" },
   ];
 

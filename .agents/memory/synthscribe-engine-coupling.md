@@ -1,24 +1,31 @@
 ---
 name: SynthScribe backing-engine coupling
-description: The per-generation backing "engine" toggle (gpu|elevenlabs) mirrors the vibe coupling — a separate hand-maintained allowlist plus a DB column.
+description: The per-generation backing "engine" toggle (musicgen|elevenlabs) is a hand-maintained allowlist plus a DB column, spread across many files.
 ---
 
 # SynthScribe backing engine selection
 
-Each project stores a backing `engine` (`gpu` | `elevenlabs`) chosen per generation.
-Adding/changing engine values touches the same kind of spread as vibes:
-1. `lib/api-spec/openapi.yaml` — `Engine` enum + `engine` on `CreateProjectRequest` and `Project` → run `pnpm --filter @workspace/api-spec run codegen`.
-2. `lib/db/src/schema/projects.ts` — `engine` text column (default `gpu`) → `pnpm --filter @workspace/db run push`.
-3. `artifacts/api-server/src/routes/projects.ts` — hand-maintained `ENGINES` Set allowlist (same pattern as `VIBES`).
-4. `artifacts/api-server/src/lib/serialize.ts` — include `engine` in `toProject`.
-5. `artifacts/synthscribe/src/pages/Home.tsx` — engine picker array + form default.
+Each project stores a backing `engine` chosen per generation. Current UI values:
+`musicgen` (default) and `elevenlabs`. Legacy values `gpu` and `arranger` are NOT
+offered in the UI but MUST stay in the OpenAPI `Engine` enum so old DB rows still
+deserialize through `GetProjectResponse.parse` (responses serialize the stored
+engine via `serialize.ts`); dropping them from the enum 500s old projects.
 
-**Why:** pipeline backing choice is `project.engine === "gpu" && modalConfigured()`,
-NOT "Modal if configured". `gpu` runs Modal MusicGen with graceful ElevenLabs fallback;
-`elevenlabs` always uses ElevenLabs even when Modal is up. The transcribed melody lead
-is layered on top in BOTH modes (pipeline section 2b is unchanged), so only the backing
-bed differs — that is what makes A/B comparison on the same hum meaningful.
+Adding/changing engine values touches a spread similar to vibes:
+1. `lib/api-spec/openapi.yaml` — `Engine` enum (keep legacy values for response
+   compat) → run `pnpm --filter @workspace/api-spec run codegen`.
+2. `lib/db/src/schema/projects.ts` — `engine` text column default → `pnpm --filter @workspace/db run push`.
+3. `artifacts/api-server/src/routes/projects.ts` — hand-maintained `ENGINES` Set
+   allowlist (only the values accepted for NEW projects) + the `?? "musicgen"` default.
+4. `artifacts/synthscribe/src/pages/Home.tsx` — engine picker array + form default.
+(`serialize.ts` just passes `engine` through; no per-value change needed there.)
 
-**How to apply:** default is `gpu` to preserve prior behavior. The orval zod schema
-rejects bad enum values before the `ENGINES` Set check ever runs, so the Set is a
-defense-in-depth mirror, not the primary validator.
+**Why:** pipeline routing is `(engine === "musicgen" || engine === "gpu") && modalConfigured()`
+→ Modal MusicGen with graceful ElevenLabs fallback; everything else (incl. legacy
+`arranger`) → ElevenLabs. The raw hum is mixed over the bed in BOTH modes, so only
+the backing bed differs — that is what makes A/B comparison on the same hum meaningful.
+
+**How to apply:** default is `musicgen` to restore the original loved behavior. The
+orval zod schema rejects bad enum values before the `ENGINES` Set check runs, so the
+Set is defense-in-depth, not the primary validator. New-project validation and the
+response enum are intentionally asymmetric (Set is narrow, enum is wide).

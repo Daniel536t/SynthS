@@ -9,6 +9,7 @@
 export * from './audioUrls';
 export * from './createProjectRequest';
 export * from './engine';
+export * from './engineChoice';
 export * from './errorResponse';
 export * from './healthStatus';
 export * from './pipelineStage';

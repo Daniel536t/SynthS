@@ -1,57 +1,40 @@
 ---
-name: SynthScribe melody faithfulness
-description: How to make the generated song actually reproduce the hummed notes — extraction, conditioning, and mixing rules.
+name: SynthScribe melody faithfulness vs. the loved "hum calls out" sound
+description: The product decision on how the user's tune appears in the final song — raw hum mixed over the bed, NOT a resynth lead.
 ---
 
-# Making SynthScribe actually reproduce the hummed melody
+# How the hummed melody appears in the final song
 
-Neither AI path reproduces the user's tune on its own: MusicGen-melody conditions on a
-loose *chroma* contour and improvises away from it (with `do_sample=True` it drifts),
-and the ElevenLabs Music path ignores the hum entirely (text-prompt only). So a song
-built only from those will never contain the user's actual notes ("it's not even my
-melody").
+There were two competing approaches. The user explicitly chose the first and
+called the second "trash":
 
-**The architecture that works (the clean melody is the single source of truth):**
-1. `transcribe.py` extracts notes from the hum (pyin → `notes = [[startSec, durSec, midi], ...]`).
-2. `render_melody.py` synthesizes those notes into a clean lead WAV (additive tone + ADSR +
-   vibrato), looped to fill the song.
-3. That **clean lead** is used for BOTH:
-   - conditioning the GPU backing (send the lead WAV to Modal, *never the raw hum*), and
-   - the dominant melodic line in the final mix (lead gain 1.0, backing ~0.4).
-4. The raw hum is NEVER used as audio anywhere in output. No notes → ship vibe-only
-   backing (never raw hum).
+1. **(SHIPPED, loved) Raw hum mixed over the AI bed.** The user's normalized hum
+   (with a touch of reverb, gain ~0.85) is layered on top of the AI backing
+   (gain ~0.9) in `pipeline.ts` step 4. Because the hum is short and the song is
+   ~3x longer, the hum **"calls out" at the start and then melts into the band**.
+   This is the original, loved SynthScribe sound. MusicGen also conditions on the
+   *raw hum's* chroma so the bed loosely follows the tune; ElevenLabs ignores the
+   hum (text-prompt only) but the raw hum on top still carries the user's idea.
 
-**Why the raw hum must not be conditioned-on or mixed-in:** it is breathy and full of
-octave/pitch noise. Conditioning MusicGen on it produced an incoherent bed; mixing it in
-produced an unsynced clashing layer. Garbage in → garbage out, faithfully rendered.
+2. **(REJECTED) Clean resynth lead.** Transcribe the hum (pyin) → render a clean
+   additive-synth lead WAV → use that lead both to condition MusicGen and as the
+   dominant melodic line, with the raw hum never used as audio. This is
+   *note-faithful* but the user hated how the synth lead sounded ("trash"). Do
+   NOT bring back `melody.ts` / `render_melody.py` / the clean-lead mix.
 
-## pyin extraction is fragile — the post-processing is what makes it clean
-A naive `librosa.pyin` with a wide range (e.g. FMAX ~1050) produces **octave errors +
-chromatic staircases** — a real hum centered on B3 came out spanning C♯3→G♯5 (3 octaves).
-The synth lead then renders that chaos faithfully. The hardening that fixes it:
-- Search a **wide** band (FMIN 70, FMAX 1000) so pyin can lock the fundamental, THEN
-  correct errors in post — narrowing the range instead just loses real notes.
-- **Energy + confidence gate**: keep a frame only if `voiced_prob > ~0.25` AND
-  `rms > max(0.02, mean_rms*0.6)`. Hums are breathy; the RMS gate drops inter-note breath.
-- **Octave folding**: fold every voiced frame to within ±6 semitones of the global median
-  MIDI. This is what kills the staircase and keeps the line in one octave.
-- **Median-filter within each contiguous voiced run** (kernel ≤5) before quantizing.
-- Then key-snap, stability-segment (min ~0.10s), merge same-pitch gaps, gentle 16th-grid
-  timing quantize.
-- **Known limitation:** global-median ±6 fold can over-correct genuinely wide-interval
-  melodies; for hums it's the right tradeoff. A phrase-local/running reference would be
-  more general (see follow-up).
+**Why mood-faithful beats note-faithful here:** AI conditioning is loose anyway
+(MusicGen-melody drifts with `do_sample=True`; ElevenLabs is prompt-only), so a
+"faithful" pipeline still won't reproduce exact notes. The user prefers hearing
+their *actual recorded hum* over a clean-but-fake synth line. Garbage-in fears
+about the breathy raw hum were overruled by the user's ear.
 
-## Library choice
-Hardened **pyin (librosa)** chosen over Spotify **Basic Pitch** despite Basic Pitch being
-the user's suggestion: Basic Pitch pulls TensorFlow/onnxruntime which conflicts with the
-api-server's numpy 2.x (librosa 0.11 needs numpy 2). The hardened pyin produces a clean
-single-octave melody from real hums with zero new heavy deps. Revisit Basic Pitch only if
-pyin proves insufficient on wider-range melodies AND the dep conflict is resolved.
+**How to apply:** keep `transcribe.py`/`transcribe.ts` — it's still used for
+key/tempo detection and the ElevenLabs prompt, NOT for rendering a lead. Mix the
+raw normalized hum into the final master; never resynthesize a lead.
 
-**Constraint:** the lead is quantized but the AI bed's tempo can't be forced, so tight
-beat-lock between lead and bed isn't guaranteed — prefer melody faithfulness over rhythmic
-sync. All stages degrade gracefully.
-
-**Verify on REAL hums, not synthetic tones** — synthetic sines hide the octave/breath
-problems that only show up on actual breathy human humming. Keep a real hum fixture.
+## pyin extraction lessons (still relevant for key/tempo)
+`transcribe.py` uses hardened librosa pyin (FMIN 70 / FMAX 1000, voiced_prob +
+RMS gate, octave-fold to ±6 of the median, median filter, key-snap). Chosen over
+Spotify Basic Pitch because Basic Pitch pulls TensorFlow/onnxruntime that
+conflicts with api-server's numpy 2.x. Verify on REAL hums (`.local/fixtures/real_hum.wav`),
+not synthetic sines, which hide octave/breath problems.

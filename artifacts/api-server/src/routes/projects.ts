@@ -37,9 +37,10 @@ const VIBES = new Set([
   "synthwave",
 ]);
 
-// "gpu" is accepted for backward compatibility with old rows but is no longer
-// offered in the UI; new projects default to the CPU "arranger" studio band.
-const ENGINES = new Set(["arranger", "elevenlabs", "gpu"]);
+// New projects pick one of two engines. Legacy values ("gpu", "arranger") are
+// no longer accepted for new rows but are still tolerated by the pipeline when
+// re-running old projects.
+const ENGINES = new Set(["musicgen", "elevenlabs"]);
 
 const IN_PROGRESS = new Set([
   "transcribing",
@@ -63,7 +64,7 @@ router.post("/projects", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid vibe" });
     return;
   }
-  const engine = parsed.data.engine ?? "arranger";
+  const engine = parsed.data.engine ?? "musicgen";
   if (!ENGINES.has(engine)) {
     res.status(400).json({ error: "Invalid engine" });
     return;

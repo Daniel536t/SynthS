@@ -24,7 +24,7 @@ export const ListProjectsResponseItem = zod.object({
   "id": zod.string(),
   "title": zod.string(),
   "vibe": zod.enum(['lofi', 'cinematic', 'pop', 'rnb', 'electronic', 'acoustic', 'ambient', 'serenity', 'soul', 'jazz', 'folk', 'afrobeat', 'synthwave']).describe('The musical mood\/genre direction for the backing track.'),
-  "engine": zod.enum(['arranger', 'elevenlabs', 'gpu']).describe('Which engine produces the backing track. \"arranger\" (default) builds a deterministic, GPU-free studio band (drums, bass, chords) on CPU, locked to the detected key and tempo. \"elevenlabs\" uses the premium ElevenLabs Music model. \"gpu\" is a legacy Modal MusicGen-melody option kept for backward compatibility and no longer offered in the UI.'),
+  "engine": zod.enum(['musicgen', 'elevenlabs', 'arranger', 'gpu']).describe('Which engine produces the backing track. \"musicgen\" (default) is the Modal MusicGen-melody GPU worker, conditioned on the hum so the band follows the real tune. \"elevenlabs\" uses the premium ElevenLabs Music model. \"arranger\" and \"gpu\" are legacy values kept only so older projects still deserialize; they are not offered in the UI.'),
   "stage": zod.enum(['draft', 'transcribing', 'generating_backing', 'singing', 'mixing', 'complete', 'error']).describe('Current stage of the hum-to-song pipeline.'),
   "progress": zod.number().describe('Coarse progress percentage (0-100).'),
   "key": zod.string().nullish(),
@@ -49,7 +49,7 @@ export const ListProjectsResponse = zod.array(ListProjectsResponseItem)
 export const CreateProjectBody = zod.object({
   "title": zod.string().optional(),
   "vibe": zod.enum(['lofi', 'cinematic', 'pop', 'rnb', 'electronic', 'acoustic', 'ambient', 'serenity', 'soul', 'jazz', 'folk', 'afrobeat', 'synthwave']).describe('The musical mood\/genre direction for the backing track.'),
-  "engine": zod.enum(['arranger', 'elevenlabs', 'gpu']).optional().describe('Which engine produces the backing track. \"arranger\" (default) builds a deterministic, GPU-free studio band (drums, bass, chords) on CPU, locked to the detected key and tempo. \"elevenlabs\" uses the premium ElevenLabs Music model. \"gpu\" is a legacy Modal MusicGen-melody option kept for backward compatibility and no longer offered in the UI.')
+  "engine": zod.enum(['musicgen', 'elevenlabs']).optional().describe('Engine a user may choose when creating a project. Only the two currently-offered engines are valid; legacy values (\"arranger\", \"gpu\") are not accepted for new projects.')
 })
 
 
@@ -64,7 +64,7 @@ export const GetProjectResponse = zod.object({
   "id": zod.string(),
   "title": zod.string(),
   "vibe": zod.enum(['lofi', 'cinematic', 'pop', 'rnb', 'electronic', 'acoustic', 'ambient', 'serenity', 'soul', 'jazz', 'folk', 'afrobeat', 'synthwave']).describe('The musical mood\/genre direction for the backing track.'),
-  "engine": zod.enum(['arranger', 'elevenlabs', 'gpu']).describe('Which engine produces the backing track. \"arranger\" (default) builds a deterministic, GPU-free studio band (drums, bass, chords) on CPU, locked to the detected key and tempo. \"elevenlabs\" uses the premium ElevenLabs Music model. \"gpu\" is a legacy Modal MusicGen-melody option kept for backward compatibility and no longer offered in the UI.'),
+  "engine": zod.enum(['musicgen', 'elevenlabs', 'arranger', 'gpu']).describe('Which engine produces the backing track. \"musicgen\" (default) is the Modal MusicGen-melody GPU worker, conditioned on the hum so the band follows the real tune. \"elevenlabs\" uses the premium ElevenLabs Music model. \"arranger\" and \"gpu\" are legacy values kept only so older projects still deserialize; they are not offered in the UI.'),
   "stage": zod.enum(['draft', 'transcribing', 'generating_backing', 'singing', 'mixing', 'complete', 'error']).describe('Current stage of the hum-to-song pipeline.'),
   "progress": zod.number().describe('Coarse progress percentage (0-100).'),
   "key": zod.string().nullish(),
@@ -98,7 +98,7 @@ export const UploadHumResponse = zod.object({
   "id": zod.string(),
   "title": zod.string(),
   "vibe": zod.enum(['lofi', 'cinematic', 'pop', 'rnb', 'electronic', 'acoustic', 'ambient', 'serenity', 'soul', 'jazz', 'folk', 'afrobeat', 'synthwave']).describe('The musical mood\/genre direction for the backing track.'),
-  "engine": zod.enum(['arranger', 'elevenlabs', 'gpu']).describe('Which engine produces the backing track. \"arranger\" (default) builds a deterministic, GPU-free studio band (drums, bass, chords) on CPU, locked to the detected key and tempo. \"elevenlabs\" uses the premium ElevenLabs Music model. \"gpu\" is a legacy Modal MusicGen-melody option kept for backward compatibility and no longer offered in the UI.'),
+  "engine": zod.enum(['musicgen', 'elevenlabs', 'arranger', 'gpu']).describe('Which engine produces the backing track. \"musicgen\" (default) is the Modal MusicGen-melody GPU worker, conditioned on the hum so the band follows the real tune. \"elevenlabs\" uses the premium ElevenLabs Music model. \"arranger\" and \"gpu\" are legacy values kept only so older projects still deserialize; they are not offered in the UI.'),
   "stage": zod.enum(['draft', 'transcribing', 'generating_backing', 'singing', 'mixing', 'complete', 'error']).describe('Current stage of the hum-to-song pipeline.'),
   "progress": zod.number().describe('Coarse progress percentage (0-100).'),
   "key": zod.string().nullish(),
