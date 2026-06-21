@@ -53,9 +53,14 @@ export default function Library() {
                 </div>
                 <CardContent className="p-6 flex-1 flex flex-col">
                   <h3 className="font-bold text-2xl mb-2 line-clamp-2 leading-tight">{project.title}</h3>
+                  {project.theme && (
+                    <p className="text-sm font-semibold text-primary line-clamp-1 mb-2" data-testid={`text-theme-${project.id}`}>
+                      &ldquo;{project.theme}&rdquo;
+                    </p>
+                  )}
                   {project.lyrics && (
                     <p className="text-sm text-muted-foreground italic line-clamp-2 mb-4 flex-1">
-                      &ldquo;{project.lyrics}&rdquo;
+                      {project.lyrics}
                     </p>
                   )}
                   

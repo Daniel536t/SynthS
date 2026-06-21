@@ -120,6 +120,10 @@ export async function runPipeline(projectId: string): Promise<void> {
         await patch(projectId, { lyrics });
       } catch (err) {
         log.warn({ err }, "Auto lyric drafting failed; producing instrumental");
+        await patch(projectId, {
+          message:
+            "Couldn't write lyrics for your melody — producing an instrumental instead",
+        });
       }
     }
     const hasLyrics = lyrics.length > 0;
