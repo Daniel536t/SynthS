@@ -1,41 +1,30 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { Readable } from "stream";
-import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import fs from "fs";
+import path from "path";
 
 const router: IRouter = Router();
-const objectStorageService = new ObjectStorageService();
+const STORAGE_ROOT = process.env.PRIVATE_OBJECT_DIR || "/home/ubuntu/synthscribe-audio/private";
 
-/**
- * GET /storage/objects/*path
- *
- * Serve audio objects produced by the pipeline from PRIVATE_OBJECT_DIR.
- * Uploads are written server-side by the generation pipeline, so there is no
- * presigned-upload endpoint here.
- */
 router.get("/storage/objects/*path", async (req: Request, res: Response): Promise<void> => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
-    const objectPath = `/objects/${wildcardPath}`;
-    const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-    const response = await objectStorageService.downloadObject(objectFile);
+    const objectPath = wildcardPath.replace(/^objects\//, "");
+    const fullPath = path.join(STORAGE_ROOT, objectPath);
 
-    res.status(response.status);
-    response.headers.forEach((value, key) => res.setHeader(key, value));
-
-    if (response.body) {
-      const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
-  } catch (error) {
-    if (error instanceof ObjectNotFoundError) {
-      req.log.warn({ err: error }, "Object not found");
+    if (!fs.existsSync(fullPath)) {
       res.status(404).json({ error: "Object not found" });
       return;
     }
-    req.log.error({ err: error }, "Error serving object");
+
+    const stat = fs.statSync(fullPath);
+    res.setHeader("Content-Length", stat.size);
+    res.setHeader("Content-Type", "audio/wav");
+
+    const stream = fs.createReadStream(fullPath);
+    stream.pipe(res);
+  } catch (error) {
+    console.error("Error serving object:", error);
     res.status(500).json({ error: "Failed to serve object" });
   }
 });
