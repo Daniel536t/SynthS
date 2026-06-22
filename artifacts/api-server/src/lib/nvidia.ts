@@ -63,3 +63,34 @@ export async function chatComplete(
   }
   return content;
 }
+
+/**
+ * Rewrite existing lyrics into completely original lyrics that preserve the
+ * structure and emotional tone but avoid copyright issues.
+ */
+export async function rewriteLyrics(opts: {
+  originalLyrics: string;
+  theme: string;
+  vibe: string;
+}): Promise<string> {
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: `You are a professional songwriter. Rewrite the given lyrics to be completely original.
+- Keep the same number of lines and approximate syllable count per line
+- Maintain the emotional tone and rhythm
+- Change the words, metaphors, and specific phrases entirely
+- Theme: ${opts.theme}
+- Musical style: ${opts.vibe}
+- Output ONLY the rewritten lyrics. No explanations, no titles, no markdown formatting.
+- Make them sound natural and singable.`,
+    },
+    {
+      role: "user",
+      content: `Rewrite these lyrics to be about "${opts.theme}":\n\n${opts.originalLyrics}`,
+    },
+  ];
+
+  const rewritten = await chatComplete(messages, { temperature: 0.9, maxTokens: 1200 });
+  return rewritten.trim();
+}

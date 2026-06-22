@@ -23,7 +23,7 @@ interface SearchResult {
   syncedLyrics: SyncedLyric[] | null;
 }
 
-export function MxmSearch({ onSelectLyrics }: { onSelectLyrics: (lyrics: string) => void }) {
+export function MxmSearch({ onSelectLyrics, onTrackFound }: { onSelectLyrics: (lyrics: string) => void }) {
   const [query, setQuery] = useState("");
   const [artist, setArtist] = useState("");
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -43,6 +43,7 @@ export function MxmSearch({ onSelectLyrics }: { onSelectLyrics: (lyrics: string)
       if (!res.ok) throw new Error("Search failed");
       const data: SearchResult = await res.json();
       setResult(data);
+      if (onTrackFound && data?.track) onTrackFound(data.track.trackId, data.track.name);
       if (!data?.track) setError("No results found");
     } catch (e) {
       setError("Search failed. Try again.");

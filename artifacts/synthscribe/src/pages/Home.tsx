@@ -15,6 +15,7 @@ import AudioRecorder from "@/components/AudioRecorder";
 import { MxmSearch } from "@/components/MxmSearch";
 import { MxmFingerprint } from "@/components/MxmFingerprint";
 import { MxmVibeSuggestions } from "@/components/MxmVibeSuggestions";
+import { MxmRewrite } from "@/components/MxmRewrite";
 import Resonance from "@/components/Resonance";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
@@ -32,6 +33,7 @@ const formSchema = z.object({
 export default function Home() {
   const [, setLocation] = useLocation();
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [selectedTrack, setSelectedTrack] = useState<{ id: number; name: string } | null>(null);
 
   const createProject = useCreateProject();
   const uploadHum = useUploadHum();
@@ -176,7 +178,8 @@ export default function Home() {
 Shape the song
             </h2>
             {/* Musixmatch: Search for existing lyrics */}
-            <MxmSearch onSelectLyrics={(lyrics) => form.setValue("lyrics", lyrics, { shouldDirty: true, shouldValidate: true })} />
+            <MxmSearch onSelectLyrics={(lyrics) => form.setValue("lyrics", lyrics, { shouldDirty: true, shouldValidate: true })} onTrackFound={(id, name) => setSelectedTrack({ id, name })} />
+            <MxmRewrite trackId={selectedTrack?.id || 0} trackName={selectedTrack?.name || ""} vibe={selectedVibe} onUseLyrics={(lyrics) => form.setValue("lyrics", lyrics, { shouldDirty: true, shouldValidate: true })} />
 
             {/* Musixmatch: Vibe-based song suggestions */}
             <MxmVibeSuggestions vibe={selectedVibe} />

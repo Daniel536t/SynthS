@@ -89,6 +89,7 @@ export async function generateSong(opts: {
     `${truncatedLyrics}\n\n` +
     `Studio-quality production, the vocal carrying the melody over the instrumental.`;
   logger.info({ vibe: opts.vibe }, "Requesting ElevenLabs sung song");
+  logger.info({ prompt: prompt.slice(0, 500) }, "ElevenLabs prompt preview");
   return postMusic(prompt, opts.lengthMs);
 }
 

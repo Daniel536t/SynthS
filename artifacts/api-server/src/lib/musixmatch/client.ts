@@ -27,7 +27,7 @@ export async function mxmGet<T>(endpoint: string, params: Record<string, string>
   }
 
   const json: MXMResponse<T> = await res.json();
-  if (json.message.header.status_code !== 200) {
+  if (json.message.header.status_code !== 200 && json.message.header.status_code !== 404) {
     throw new Error(`Musixmatch API returned status ${json.message.header.status_code}`);
   }
 
@@ -51,7 +51,7 @@ export async function mxmPost<T>(endpoint: string, body: unknown): Promise<T> {
   }
 
   const json: MXMResponse<T> = await res.json();
-  if (json.message.header.status_code !== 200) {
+  if (json.message.header.status_code !== 200 && json.message.header.status_code !== 404) {
     throw new Error(`Musixmatch API returned status ${json.message.header.status_code}`);
   }
 
