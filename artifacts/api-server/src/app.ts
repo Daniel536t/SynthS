@@ -1,10 +1,9 @@
 import express, { Request, Response } from "express";
+import routes from "./routes";
 
 const app = express();
 
 app.use(express.json());
-
-// REMOVE pino-http for Vercel stability
 
 app.get("/", (req: Request, res: Response) => {
   res.json({
@@ -12,5 +11,7 @@ app.get("/", (req: Request, res: Response) => {
     message: "Synthscribe API running on Vercel"
   });
 });
+
+app.use("/api", routes);
 
 export default app;
