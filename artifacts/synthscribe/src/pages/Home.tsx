@@ -163,7 +163,7 @@ export default function Home() {
                 <Music className="w-5 h-5" />
                 <span className="font-medium">Melody captured! ({Math.round(recordedBlob.size / 1024)} KB)</span>
               </div>
-n            {/* Musixmatch: Show fingerprint matches when lyrics exist */}
+{/* Musixmatch: Show fingerprint matches when lyrics exist */}
             <MxmFingerprint lyrics={lyricsValue} />
             )}
           </div>
@@ -173,7 +173,7 @@ n            {/* Musixmatch: Show fingerprint matches when lyrics exist */}
           <div className="space-y-4">
             <h2 className="text-2xl font-bold flex items-center gap-2">
               <span className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm">2</span>
-n            {/* Musixmatch: Search for existing lyrics */}
+{/* Musixmatch: Search for existing lyrics */}
             <MxmSearch onSelectLyrics={(lyrics) => form.setValue("lyrics", lyrics, { shouldDirty: true, shouldValidate: true })} />
 
             {/* Musixmatch: Vibe-based song suggestions */}
