@@ -62,7 +62,7 @@ export default function Project() {
         el.pause();
       }
     } else {
-      el.src = url;
+      el.src = url.startsWith("/") ? (import.meta.env.VITE_API_BASE_URL ?? "") + url : url;
       startElementAnalyser();
       el.play();
       setActiveAudio(url);
