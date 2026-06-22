@@ -62,7 +62,8 @@ export async function generateBacking(opts: {
 }): Promise<Buffer> {
   const desc = VIBE_DESC[opts.vibe] ?? VIBE_DESC.pop;
   const keyPart = opts.key ? `in the key of ${opts.key}, ` : "";
-  const prompt =
+  const truncatedLyrics = opts.lyrics.length > 1000 ? opts.lyrics.slice(0, 1000) + "..." : opts.lyrics;
+    const prompt =
     `An instrumental backing track: ${desc}. ${keyPart}${tempoWord(opts.tempo)}. ` +
     `Leave melodic space for a lead vocal on top. No spoken word, no lyrics, fully instrumental, ` +
     `clean studio mix, seamless and emotive.`;
@@ -80,11 +81,12 @@ export async function generateSong(opts: {
 }): Promise<Buffer> {
   const desc = VIBE_DESC[opts.vibe] ?? VIBE_DESC.pop;
   const keyPart = opts.key ? `in the key of ${opts.key}, ` : "";
-  const prompt =
+  const truncatedLyrics = opts.lyrics.length > 1000 ? opts.lyrics.slice(0, 1000) + "..." : opts.lyrics;
+    const prompt =
     `A complete song with clear, expressive lead vocals singing words. ` +
     `Musical style: ${desc}. ${keyPart}${tempoWord(opts.tempo)}. ` +
     `The lead vocalist sings these exact lyrics, front and center in the mix, with clear diction and emotion:\n\n` +
-    `${opts.lyrics}\n\n` +
+    `${truncatedLyrics}\n\n` +
     `Studio-quality production, the vocal carrying the melody over the instrumental.`;
   logger.info({ vibe: opts.vibe }, "Requesting ElevenLabs sung song");
   return postMusic(prompt, opts.lengthMs);
@@ -174,7 +176,8 @@ export async function generateVocals(opts: {
   lengthMs: number;
 }): Promise<Buffer> {
   const keyPart = opts.key ? `in ${opts.key}, ` : "";
-  const prompt =
+  const truncatedLyrics = opts.lyrics.length > 1000 ? opts.lyrics.slice(0, 1000) + "..." : opts.lyrics;
+    const prompt =
     `A solo wordless vocal melody (vocalise) — expressive "ooh" and "ah" singing with no words, ` +
     `${keyPart}${tempoWord(opts.tempo)}, ${opts.vibe} mood. Just the lead voice, minimal backing, ` +
     `emotional and human.`;
